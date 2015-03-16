@@ -57,7 +57,7 @@ type Router struct {
 	Handle405 http.Handler
 }
 
-func (router Router) serve404(w http.ResponseWriter, r *http.Request, t time.Time) {
+func (router *Router) serve404(w http.ResponseWriter, r *http.Request, t time.Time) {
 	h := default404Handler
 	if router.Handle404 != nil {
 		h = router.Handle404
@@ -66,7 +66,7 @@ func (router Router) serve404(w http.ResponseWriter, r *http.Request, t time.Tim
 	h.ServeHTTP(w, r)
 }
 
-func (router Router) serve405(w http.ResponseWriter, r *http.Request, t time.Time) {
+func (router *Router) serve405(w http.ResponseWriter, r *http.Request, t time.Time) {
 	h := default405Handler
 	if router.Handle405 != nil {
 		h = router.Handle405
@@ -79,6 +79,7 @@ func (router Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	if router.t == nil {
 		router.serve404(w, r, start)
+		return
 	}
 	pieces := strings.Split(strings.ToLower(strings.Trim(r.URL.Path, "/")), "/")
 	router.t.RLock()
@@ -87,6 +88,7 @@ func (router Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path, ok := router.t.match(pieces)
 	if !ok {
 		router.serve404(w, r, start)
+		return
 	}
 	b := router.t.branch
 	for i, pos := range path {
@@ -107,6 +109,7 @@ func (router Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h := b.methods[r.Method]
 	if h == nil {
 		router.serve405(w, r, start)
+		return
 	}
 	r.Header.Set("Trout-Timer", strconv.FormatInt(time.Now().Sub(start).Nanoseconds(), 10))
 	h.ServeHTTP(w, r)
@@ -118,10 +121,13 @@ func (router Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //
 // Parameters are always `/`-separated strings. There is no support for regular expressions or other limitations
 // on what may be in those strings. A parameter is simply defined as "whatever is between these two / characters".
-func (router Router) Endpoint(e string) *Endpoint {
+func (router *Router) Endpoint(e string) *Endpoint {
 	e = strings.Trim(e, "/")
 	e = strings.ToLower(e)
 	pieces := strings.Split(e, "/")
+	if router.t == nil {
+		router.t = &trie{}
+	}
 	router.t.Lock()
 	defer router.t.Unlock()
 	if router.t.branch == nil {
@@ -145,7 +151,7 @@ func (router Router) Endpoint(e string) *Endpoint {
 	for i := offset; i < len(pieces); i++ {
 		piece := pieces[i]
 		var isParam bool
-		if piece[0:1] == "{" && piece[len(piece)-1:] == "}" {
+		if len(piece) > 0 && piece[0:1] == "{" && piece[len(piece)-1:] == "}" {
 			isParam = true
 			piece = piece[1 : len(piece)-1]
 		}
@@ -178,7 +184,7 @@ func findClosestLeaf(pieces []string, b *branch) []int {
 	for i := 0; i < num; i++ {
 		piece := pieces[i]
 		var isParam bool
-		if piece[0:1] == "{" && piece[len(piece)-1:] == "}" {
+		if len(piece) > 0 && piece[0:1] == "{" && piece[len(piece)-1:] == "}" {
 			isParam = true
 			piece = piece[1 : len(piece)-1]
 		}

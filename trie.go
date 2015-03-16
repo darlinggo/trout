@@ -89,6 +89,9 @@ func (b *branch) check(input string) bool {
 }
 
 func (b *branch) setHandler(method string, handler http.Handler) {
+	if b.methods == nil {
+		b.methods = map[string]http.Handler{}
+	}
 	b.methods[method] = handler
 }
 
