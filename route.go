@@ -14,6 +14,7 @@ var (
 		return
 	}))
 	default405Handler = http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", strings.Join(r.Header[http.CanonicalHeaderKey("Trout-Methods")], ", "))
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		w.Write([]byte("405 Method Not Allowed"))
 		return
@@ -217,7 +218,7 @@ func findClosestLeaf(pieces []string, b *branch) []int {
 func pickNextRoute(b *branch, offset int, input string, variable bool) int {
 	count := len(b.children)
 	for i := offset; i < count; i++ {
-		if b.children[i].key == input && b.isParam == variable {
+		if b.children[i].key == input && b.children[i].isParam == variable {
 			return i
 		}
 	}
