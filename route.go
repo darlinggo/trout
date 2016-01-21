@@ -56,6 +56,7 @@ type Router struct {
 	t         *trie
 	Handle404 http.Handler
 	Handle405 http.Handler
+	prefix    string
 }
 
 func (router *Router) serve404(w http.ResponseWriter, r *http.Request, t time.Time) {
@@ -82,7 +83,8 @@ func (router Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		router.serve404(w, r, start)
 		return
 	}
-	pieces := strings.Split(strings.ToLower(strings.Trim(r.URL.Path, "/")), "/")
+	u := strings.TrimPrefix(r.URL.Path, router.prefix)
+	pieces := strings.Split(strings.ToLower(strings.Trim(u, "/")), "/")
 	router.t.RLock()
 	defer router.t.RUnlock()
 	branches := make([]*branch, len(pieces))
@@ -114,6 +116,12 @@ func (router Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Header.Set("Trout-Timer", strconv.FormatInt(time.Now().Sub(start).Nanoseconds(), 10))
 	h.ServeHTTP(w, r)
+}
+
+// SetPrefix sets a string prefix for the Router that won't be taken into account when matching Endpoints.
+// This is usually set to whatever path is associated with the http.Handler serving the Router.
+func (router *Router) SetPrefix(prefix string) {
+	router.prefix = prefix
 }
 
 // Endpoint defines a new Endpoint on the Router. The Endpoint should be a URL template, using curly braces
