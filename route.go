@@ -114,6 +114,7 @@ func (router Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		router.serve405(w, r, start)
 		return
 	}
+	r.Header.Set("Trout-Pattern", pattern(branches))
 	r.Header.Set("Trout-Timer", strconv.FormatInt(time.Now().Sub(start).Nanoseconds(), 10))
 	h.ServeHTTP(w, r)
 }
@@ -183,6 +184,18 @@ func vars(path []*branch, pieces []string) map[string][]string {
 		v[p.key] = append(v[p.key], pieces[pos])
 	}
 	return v
+}
+
+func pattern(path []*branch) string {
+	results := []string{}
+	for _, p := range path {
+		key := p.key
+		if p.isParam {
+			key = "{" + key + "}"
+		}
+		results = append(results, key)
+	}
+	return strings.Join(results, "/")
 }
 
 func findClosestLeaf(pieces []string, b *branch) []int {
