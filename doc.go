@@ -9,13 +9,13 @@ or anything other than a direct equality comparison, unlike many
 routing libraries.
 
 The router is specifically designed to support users that want to
-return correct information with HEAD requests, so it enables users
+return correct information with OPTIONS requests, so it enables users
 to retrieve a list of HTTP methods an Endpoint is configured to
-respond to. It will not return the configurations an Endpoint is
-implicitly configured to respond to by associated a Handler with the
-Endpoint itself. These HTTP methods can be accessed through the
-Trout-Methods header that is injected into the http.Request object.
-Each method will be its own string in the slice.
+respond to. It will not return the methods an Endpoint is implicitly
+configured to respond to by associating a Handler with the Endpoint
+itself. These HTTP methods can be accessed through the Trout-Methods
+header that is injected into the http.Request object. Each method
+will be its own string in the slice.
 
 The router is also specifically designed to differentiate between a
 404 (Not Found) response and a 405 (Method Not Allowed) response. It
