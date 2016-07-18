@@ -31,7 +31,8 @@ func (t *trie) match(input []string) ([]int, bool) {
 		if b == nil {
 			return path, false
 		}
-		offset = pickNextBranch(b, offset, input[i])
+		isLast := i == num-1
+		offset = pickNextBranch(b, offset, input[i], isLast)
 		if offset == -1 {
 			if len(path) == 0 {
 				// we're at the very first branch, bail out
@@ -55,10 +56,10 @@ func (t *trie) match(input []string) ([]int, bool) {
 }
 
 // find the first child of branch after offset that matches input
-func pickNextBranch(b *branch, offset int, input string) int {
+func pickNextBranch(b *branch, offset int, input string, isLast bool) int {
 	count := len(b.children)
 	for i := offset; i < count; i++ {
-		if b.children[i].check(input) {
+		if b.children[i].check(input, isLast) {
 			return i
 		}
 	}
@@ -115,7 +116,10 @@ func (b *branch) addChild(key string, param bool) *branch {
 }
 
 // return true if the input should be considered a match for the branch
-func (b *branch) check(input string) bool {
+func (b *branch) check(input string, isLast bool) bool {
+	if isLast && len(b.methods) == 0 {
+		return false
+	}
 	if b.isParam && b.key != "" {
 		return true
 	}
