@@ -59,27 +59,25 @@ type Router struct {
 	prefix    string
 }
 
-func (router *Router) serve404(w http.ResponseWriter, r *http.Request, t time.Time) {
+func (router *Router) get404(r *http.Request) http.Handler {
 	h := default404Handler
 	if router.Handle404 != nil {
 		h = router.Handle404
 	}
-	r.Header.Set("Trout-Timer", strconv.FormatInt(time.Now().Sub(t).Nanoseconds(), 10))
-	h.ServeHTTP(w, r)
+	return h
 }
 
-func (router *Router) serve405(w http.ResponseWriter, r *http.Request, t time.Time) {
+func (router *Router) get405(r *http.Request) http.Handler {
 	h := default405Handler
 	if router.Handle405 != nil {
 		h = router.Handle405
 	}
-	r.Header.Set("Trout-Timer", strconv.FormatInt(time.Now().Sub(t).Nanoseconds(), 10))
-	h.ServeHTTP(w, r)
+	return h
 }
 
-// getHandler returns the handler, the key for that handler, the map of values for any parameters
+// route returns the handler, the key for that handler, the map of values for any parameters
 // in that handler, and the list of methods that handler is equipped to respond to.
-func (router Router) getHandler(pieces []string, method string) (http.Handler, string, map[string][]string, []string) {
+func (router Router) route(pieces []string, method string) (http.Handler, string, map[string][]string, []string) {
 	router.t.RLock()
 	defer router.t.RUnlock()
 	branches := make([]*branch, len(pieces))
@@ -105,31 +103,34 @@ func (router Router) getHandler(pieces []string, method string) (http.Handler, s
 	return h, match, v, ms
 }
 
-// ServeHTTP serves the request by matching it to a Handler.
-func (router Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (router Router) getHandler(r *http.Request) http.Handler {
 	start := time.Now()
+	defer func() {
+		r.Header.Set("Trout-Timer", strconv.FormatInt(time.Now().Sub(start).Nanoseconds(), 10))
+	}()
 	if router.t == nil {
-		router.serve404(w, r, start)
-		return
+		return router.get404(r)
 	}
 	u := strings.TrimPrefix(r.URL.Path, router.prefix)
 	pieces := strings.Split(strings.ToLower(strings.Trim(u, "/")), "/")
-	h, match, params, methods := router.getHandler(pieces, r.Method)
+	h, match, params, methods := router.route(pieces, r.Method)
 	if h == nil {
 		if len(methods) < 1 {
-			router.serve404(w, r, start)
-			return
+			return router.get404(r)
 		}
-		router.serve405(w, r, start)
-		return
+		return router.get405(r)
 	}
 	for key, vals := range params {
 		r.Header[http.CanonicalHeaderKey("Trout-Param-"+key)] = vals
 	}
 	r.Header[http.CanonicalHeaderKey("Trout-Methods")] = methods
 	r.Header.Set("Trout-Pattern", match)
-	r.Header.Set("Trout-Timer", strconv.FormatInt(time.Now().Sub(start).Nanoseconds(), 10))
-	h.ServeHTTP(w, r)
+	return h
+}
+
+// ServeHTTP serves the request by matching it to a Handler.
+func (router Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	router.getHandler(r).ServeHTTP(w, r)
 }
 
 // SetPrefix sets a string prefix for the Router that won't be taken into account when matching Endpoints.

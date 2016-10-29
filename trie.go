@@ -1,14 +1,35 @@
 package trout
 
 import (
+	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 )
 
 type trie struct {
 	branch *branch
 	sync.RWMutex
+}
+
+func (t trie) debugWalk(input []string, indentLevel string, root *branch) []string {
+	key := root.key
+	if root.isParam {
+		key = "{" + key + "}"
+	}
+	input = append(input, indentLevel+"/"+key)
+	for method, h := range root.methods {
+		input = append(input, fmt.Sprintf("%s\t- %s: %s", indentLevel, method, h))
+	}
+	for _, child := range root.children {
+		input = t.debugWalk(input, indentLevel+"\t", child)
+	}
+	return input
+}
+
+func (t trie) debug() string {
+	return strings.Join(t.debugWalk([]string{}, "", t.branch), "\n")
 }
 
 // match takes input as a slice of string keys, and attempts
@@ -58,12 +79,16 @@ func (t *trie) match(input []string) ([]int, bool) {
 // find the first child of branch after offset that matches input
 func pickNextBranch(b *branch, offset int, input string, isLast bool) int {
 	count := len(b.children)
+	best := -1
 	for i := offset; i < count; i++ {
 		if b.children[i].check(input, isLast) {
-			return i
+			best = i
+			if !b.children[i].isParam {
+				return best
+			}
 		}
 	}
-	return -1
+	return best
 }
 
 // return the path before our most recent match, and the slice position
