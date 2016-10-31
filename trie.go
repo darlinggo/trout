@@ -3,14 +3,32 @@ package trout
 import (
 	"fmt"
 	"net/http"
-	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
 
+const catchAllMethod = "*"
+
 type trie struct {
 	branch *branch
 	sync.RWMutex
+}
+
+type branch struct {
+	parent           *branch
+	staticChildren   map[string]*branch
+	wildcardChildren []*branch
+	key              string
+	isParam          bool
+	methods          map[string]http.Handler
+	depth            int
+	priority         float64
+}
+
+type candidateBranch struct {
+	b             *branch
+	matchedPieces int
 }
 
 func (t trie) debugWalk(input []string, indentLevel string, root *branch) []string {
@@ -18,11 +36,14 @@ func (t trie) debugWalk(input []string, indentLevel string, root *branch) []stri
 	if root.isParam {
 		key = "{" + key + "}"
 	}
-	input = append(input, indentLevel+"/"+key)
+	input = append(input, indentLevel+"/"+key+"\t["+strconv.FormatFloat(root.priority, 'f', 4, 64)+"]")
 	for method, h := range root.methods {
 		input = append(input, fmt.Sprintf("%s\t- %s: %s", indentLevel, method, h))
 	}
-	for _, child := range root.children {
+	for _, child := range root.staticChildren {
+		input = t.debugWalk(input, indentLevel+"\t", child)
+	}
+	for _, child := range root.wildcardChildren {
 		input = t.debugWalk(input, indentLevel+"\t", child)
 	}
 	return input
@@ -34,95 +55,95 @@ func (t trie) debug() string {
 
 // match takes input as a slice of string keys, and attempts
 // to find a path through the trie that satisfies those keys.
-// If successful, the path will be returned as offsets for
-// the children of the root branch of the trie.
+// If successful, the path will be returned as keys for
+// the children used, starting at the root branch of the trie.
 //
 // if a suitable path is found, the boolean returned will be
 // true. Otherwise, it will be false.
-func (t *trie) match(input []string) ([]int, bool) {
+func (t *trie) match(input []string, method string) *branch {
 	if t.branch == nil {
 		t.branch = &branch{}
 	}
-	b := t.branch
-	var path []int
-	offset := 0
-	num := len(input)
-	for i := 0; i < num; i++ {
-		// if we're on a nil branch, we're at the end of our line
-		if b == nil {
-			return path, false
-		}
-		isLast := i == num-1
-		offset = pickNextBranch(b, offset, input[i], isLast)
-		if offset == -1 {
-			if len(path) == 0 {
-				// we're at the very first branch, bail out
-				// there's nowhere left to look
-				return path, false
-			}
-			// no match, backup
-			path, offset = backup(path)
-			offset = offset + 1 // the branch that we chose last led us to a dead end, pick the next one
-			b = b.parent        // we need to pick the next child of our parent, the one right after the one we just searched
-			i = i - 2           // and we need to search it for the word we had matched
-			// (we subtract two to account for the +1 completing the loop adds and the +1 from matching it the first time)
-			// basically, we're saying "redo that match, but without this path"
+	// candidates tracks the paths that we think could be viable
+	candidates := []candidateBranch{{b: t.branch}}
+	// candidateLeafs tracks the paths that turned out to be viable
+	var candidateLeafs []*branch
+	for len(candidates) > 0 {
+		// pop off the next candidate
+		candidate := candidates[len(candidates)-1]
+		candidates = candidates[:len(candidates)-1]
+
+		// follow it as far as we can
+		results, matchedPieces := candidate.b.match(input[candidate.matchedPieces:])
+
+		// if there are no results, bail
+		if len(results) == 0 {
 			continue
 		}
-		path = append(path, offset)
-		b = b.children[offset]
-		offset = 0
-	}
-	return path, true
-}
 
-// find the first child of branch after offset that matches input
-func pickNextBranch(b *branch, offset int, input string, isLast bool) int {
-	count := len(b.children)
-	best := -1
-	for i := offset; i < count; i++ {
-		if b.children[i].check(input, isLast) {
-			best = i
-			if !b.children[i].isParam {
-				return best
+		// if we have unmatched input, add the results to the candidates and carry on
+		if matchedPieces+candidate.matchedPieces < len(input) {
+			for _, result := range results {
+				candidates = append(candidates, candidateBranch{b: result, matchedPieces: candidate.matchedPieces + matchedPieces})
 			}
+			continue
+		}
+
+		// if we have no unmatched input, they're candidate leafs
+		candidateLeafs = append(candidateLeafs, results...)
+	}
+
+	var match *branch
+	var matchedLeafs []*branch
+	for _, candidate := range candidateLeafs {
+		// prematurely set a result so if we don't get a method
+		// match, we can return a 405
+		match = candidate
+
+		// check if the candidates can handle the method we're looking for
+		if _, ok := candidate.methods[method]; ok {
+			matchedLeafs = append(matchedLeafs, candidate)
+			continue
+		}
+		if _, ok := candidate.methods[catchAllMethod]; ok {
+			matchedLeafs = append(matchedLeafs, candidate)
+			continue
 		}
 	}
-	return best
-}
 
-// return the path before our most recent match, and the slice position
-// of the branch that matched it
-func backup(path []int) ([]int, int) {
-	last := len(path) - 1
-	pos := path[last]
-	path = path[:last]
-	return path, pos
-}
-
-type branch struct {
-	parent   *branch
-	children []*branch
-	key      string
-	isParam  bool
-	methods  map[string]http.Handler
-}
-
-// sort our branches: lexically by key, with ties being determined by
-// "parameters sort to the end" rules.
-func (b *branch) Less(i, j int) bool {
-	if b.children[i].key == b.children[j].key {
-		return b.children[j].isParam && !b.children[i].isParam
+	var highScore float64
+	for _, result := range matchedLeafs {
+		if result.priority > highScore {
+			highScore = result.priority
+			match = result
+		}
 	}
-	return b.children[i].key < b.children[j].key
+
+	return match
 }
 
-func (b *branch) Len() int {
-	return len(b.children)
-}
+func (b *branch) match(input []string) ([]*branch, int) {
+	var matches []*branch
+	if len(input) < 1 {
+		return matches, 0
+	}
+	// do we have a precise match for this portion of the route?
+	child, ok := b.staticChildren[input[0]]
+	if ok {
+		matches = append(matches, child)
+	}
 
-func (b *branch) Swap(i, j int) {
-	b.children[i], b.children[j] = b.children[j], b.children[i]
+	// do we have a wildcard match for this portion of the route?
+	for _, candidate := range b.wildcardChildren {
+		if candidate.check(input[0], len(input) == 1) {
+			matches = append(matches, candidate)
+		}
+	}
+	var inputMatched int
+	if len(matches) > 0 {
+		inputMatched = 1
+	}
+	return matches, inputMatched
 }
 
 // insert a new branch as a child of the branch this is called on. Key
@@ -130,28 +151,79 @@ func (b *branch) Swap(i, j int) {
 // will be considered to match the branch. For params, key is used as
 // the variable name for the value.
 func (b *branch) addChild(key string, param bool) *branch {
-	child := &branch{key: key, parent: b, isParam: param}
-	if b.children == nil {
-		b.children = []*branch{child}
+	child := &branch{key: key, parent: b, isParam: param, depth: b.depth + 1}
+	child.priority = child.score()
+	if param {
+		b.wildcardChildren = append(b.wildcardChildren, child)
 		return child
 	}
-	b.children = append(b.children, child)
-	sort.Sort(b)
+	if b.staticChildren == nil {
+		b.staticChildren = map[string]*branch{key: child}
+		return child
+	}
+	b.staticChildren[key] = child
 	return child
 }
 
 // return true if the input should be considered a match for the branch
+// isLast is true if this is the last piece of input
 func (b *branch) check(input string, isLast bool) bool {
+	// if it's the last piece of input and we don't have any handlers
+	// this isn't a match
 	if isLast && len(b.methods) == 0 {
 		return false
 	}
+	// params match everything!
 	if b.isParam && b.key != "" {
 		return true
 	}
+	// last resort -- is it an exact match?
 	if b.key == input {
 		return true
 	}
 	return false
+}
+
+func (b *branch) vars(input []string) map[string][]string {
+	bvars := map[string][]string{}
+	if b.parent != nil {
+		parentVars := b.parent.vars(input[:len(input)-1])
+		for k, v := range parentVars {
+			bvars[k] = append(bvars[k], v...)
+		}
+	}
+	if b.isParam {
+		bvars[b.key] = append(bvars[b.key], input[len(input)-1])
+	}
+	return bvars
+}
+
+func (b *branch) score() float64 {
+	score := 2.0
+	if b.isParam {
+		score = 1.0
+	}
+	score = score / float64(b.depth+1)
+	if b.parent != nil {
+		score += b.parent.priority
+	}
+	return score
+}
+
+func (b *branch) pathString() string {
+	var res string
+	if b.parent != nil {
+		res = b.parent.pathString()
+	}
+	res += "/"
+	if b.isParam {
+		res += "{"
+	}
+	res += b.key
+	if b.isParam {
+		res += "}"
+	}
+	return res
 }
 
 // set the http.Handler for a given method on the current branch

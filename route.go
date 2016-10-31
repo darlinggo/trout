@@ -80,27 +80,21 @@ func (router *Router) get405(r *http.Request) http.Handler {
 func (router Router) route(pieces []string, method string) (http.Handler, string, map[string][]string, []string) {
 	router.t.RLock()
 	defer router.t.RUnlock()
-	branches := make([]*branch, len(pieces))
-	path, ok := router.t.match(pieces)
-	if !ok {
+	branch := router.t.match(pieces, method)
+	if branch == nil {
 		return nil, "", nil, nil
 	}
-	b := router.t.branch
-	for i, pos := range path {
-		b = b.children[pos]
-		branches[i] = b
+	vars := branch.vars(pieces)
+	methods := make([]string, 0, len(branch.methods))
+	for m := range branch.methods {
+		methods = append(methods, m)
 	}
-	v := vars(branches, pieces)
-	ms := make([]string, 0, len(b.methods))
-	for m := range b.methods {
-		ms = append(ms, m)
+	handler, ok := branch.methods[method]
+	if !ok {
+		handler = branch.methods[catchAllMethod]
 	}
-	h := b.methods[""]
-	if han, ok := b.methods[method]; ok {
-		h = han
-	}
-	match := pattern(branches)
-	return h, match, v, ms
+	match := branch.pathString()
+	return handler, match, vars, methods
 }
 
 func (router Router) getHandler(r *http.Request) http.Handler {
@@ -156,28 +150,26 @@ func (router *Router) Endpoint(e string) *Endpoint {
 	defer router.t.Unlock()
 	if router.t.branch == nil {
 		router.t.branch = &branch{
-			parent:   nil,
-			children: []*branch{},
-			key:      "",
-			isParam:  false,
-			methods:  map[string]http.Handler{},
+			staticChildren: map[string]*branch{},
+			methods:        map[string]http.Handler{},
 		}
 	}
-	// find the path that gets us closest to our destination
-	// so we can build off that
+	// find the closest leaf branch to our destination
+	// so we can add the new branch as a child
 	closest := findClosestLeaf(pieces, router.t.branch)
-	b := router.t.branch
-	for _, pos := range closest {
-		b = b.children[pos]
-	}
+
 	// if we already have the entire path, just return the
 	// last branch and call it a day
-	if len(closest) == len(pieces) {
-		return (*Endpoint)(b)
+	if closest.depth == len(pieces) {
+		return (*Endpoint)(closest)
 	}
 	// starting from the last known branch, add branches until
 	// we've got a branch for each piece of the input
-	offset := len(closest)
+	offset := closest.depth - 1
+	if offset < 0 {
+		offset = 0
+	}
+
 	for i := offset; i < len(pieces); i++ {
 		piece := pieces[i]
 		var isParam bool
@@ -185,9 +177,9 @@ func (router *Router) Endpoint(e string) *Endpoint {
 			isParam = true
 			piece = piece[1 : len(piece)-1]
 		}
-		b = b.addChild(piece, isParam)
+		closest = closest.addChild(piece, isParam)
 	}
-	return (*Endpoint)(b)
+	return (*Endpoint)(closest)
 }
 
 // given a list of branches and a list of pieces matching those
@@ -231,10 +223,7 @@ func pattern(path []*branch) string {
 // multi-dimensional array format. Pieces will be in template
 // format, and this is used to find shared ancestors, not to
 // route.
-func findClosestLeaf(pieces []string, b *branch) []int {
-	offset := 0
-	path := []int{}
-	longest := []int{}
+func findClosestLeaf(pieces []string, b *branch) *branch {
 	num := len(pieces)
 	for i := 0; i < num; i++ {
 		piece := pieces[i]
@@ -243,47 +232,28 @@ func findClosestLeaf(pieces []string, b *branch) []int {
 			isParam = true
 			piece = piece[1 : len(piece)-1]
 		}
-		offset = pickNextRoute(b, offset, piece, isParam)
-		if offset == -1 {
-			if len(path) == 0 {
-				// exhausted our options, bail
-				break
+		if !isParam {
+			child, ok := b.staticChildren[piece]
+			if !ok {
+				return b
 			}
-			// no match, maybe save this and backup
-			if len(path) > len(longest) {
-				longest = append([]int{}, path...) // copy them over so they don't get modified
-			}
-			path, offset = backup(path)
-			offset = offset + 1
-			b = b.parent
-			i = i - 2
+			b = child
 			continue
 		}
-		path = append(path, offset)
-		b = b.children[offset]
-		offset = 0
-	}
-	if len(longest) < len(path) {
-		// defensively copy
-		longest = append([]int{}, path...)
-	}
-	return longest
-}
 
-// return true if the input should be considered a match for the branch
-// the same as branch.check, with the wrinkle that param branches only
-// match when variable is true.
-//
-// this is used when trying to add to the trie, and we need to find the
-// best route to add to.
-func pickNextRoute(b *branch, offset int, input string, variable bool) int {
-	count := len(b.children)
-	for i := offset; i < count; i++ {
-		if b.children[i].key == input && b.children[i].isParam == variable {
-			return i
+		// if it is a param, we need to match it by key
+		var wildMatch bool
+		for _, wildcard := range b.wildcardChildren {
+			if wildcard.key == piece {
+				wildMatch = true
+				b = wildcard
+			}
+		}
+		if !wildMatch {
+			return b
 		}
 	}
-	return -1
+	return b
 }
 
 // Endpoint defines a single URL template that requests can be matched against. It uses
@@ -297,7 +267,7 @@ type Endpoint branch
 // considered matches for requests, unless the request was made using an HTTP method that the
 // Endpoint has an http.Handler mapped to.
 func (e *Endpoint) Handler(h http.Handler) {
-	(*branch)(e).setHandler("", h)
+	(*branch)(e).setHandler(catchAllMethod, h)
 }
 
 // Methods returns a Methods object that will enable the mapping of the passed HTTP
