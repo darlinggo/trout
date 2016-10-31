@@ -62,6 +62,6 @@ Sometimes, however, you want something besides these defaults. In that case, you
 
 ## Understanding routing
 
-There are times when multiple endpoints can be used to serve the same request. A simplified example would be `/version' and `/{id}` both being endpoints on a router. When a request is made to `/version`, which should be used?
+There are times when multiple endpoints can be used to serve the same request. A simplified example would be `/version` and `/{id}` both being endpoints on a router. When a request is made to `/version`, which should be used?
 
 Trout resolves this by trying to find the most specific route that can handle the request. Endpoints get a score based on how many placeholders exist in the endpoint, and how close to the beginning of the endpoint they are. The more placeholders an endpoint has, and the earlier in the endpoint they are, the lower the score is. The highest scoring endpoint serves the request.
