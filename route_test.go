@@ -27,6 +27,7 @@ func TestRouting(t *testing.T) {
 		{"/v1", "POST", "post-dynamic"},
 		{"/v1/", "POST", "post-dynamic"},
 		{"/", "GET", "get-root"},
+		{"/hello/world", "DELETE", "catch-all"},
 	}
 	var router Router
 	router.Handle404 = testHandler("404")
@@ -35,6 +36,7 @@ func TestRouting(t *testing.T) {
 	router.Endpoint("/v1").Methods("GET").Handler(testHandler("get-static"))
 	router.Endpoint("/{id}").Methods("POST").Handler(testHandler("post-dynamic"))
 	router.Endpoint("/").Methods("GET").Handler(testHandler("get-root"))
+	router.Endpoint("/hello/world").Handler(testHandler("catch-all"))
 	for _, c := range cases {
 		r, err := http.NewRequest(c.method, c.url, nil)
 		if err != nil {
