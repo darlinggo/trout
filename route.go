@@ -93,7 +93,7 @@ func (router Router) route(pieces []string, method string) (http.Handler, string
 	if !ok {
 		handler = branch.methods[catchAllMethod]
 	}
-	match := branch.pathString()
+	match := strings.TrimSuffix(router.prefix, "/") + branch.pathString()
 	return handler, match, vars, methods
 }
 

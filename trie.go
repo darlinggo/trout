@@ -215,7 +215,9 @@ func (b *branch) pathString() string {
 	if b.parent != nil {
 		res = b.parent.pathString()
 	}
-	res += "/"
+	if len(res) < 1 || res[len(res)-1] != '/' {
+		res += "/"
+	}
 	if b.isParam {
 		res += "{"
 	}
