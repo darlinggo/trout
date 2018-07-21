@@ -205,7 +205,7 @@ func (b *branch) score() float64 {
 	}
 	score = score / float64(b.depth+1)
 	if b.parent != nil {
-		score += b.parent.priority
+		score += b.parent.score()
 	}
 	return score
 }
