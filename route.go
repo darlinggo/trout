@@ -165,7 +165,7 @@ func (router *Router) Endpoint(e string) *Endpoint {
 	}
 	// starting from the last known branch, add branches until
 	// we've got a branch for each piece of the input
-	offset := closest.depth - 1
+	offset := closest.depth
 	if offset < 0 {
 		offset = 0
 	}
