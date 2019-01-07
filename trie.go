@@ -2,6 +2,7 @@ package trout
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 const catchAllMethod = "*"
 
 type trie struct {
+	debug  bool
 	branch *branch
 	sync.RWMutex
 }
@@ -49,7 +51,7 @@ func (t trie) debugWalk(input []string, indentLevel string, root *branch) []stri
 	return input
 }
 
-func (t trie) debug() string {
+func (t trie) debugStr() string {
 	return strings.Join(t.debugWalk([]string{}, "", t.branch), "\n")
 }
 
@@ -72,6 +74,9 @@ func (t *trie) match(input []string, method string) *branch {
 		// pop off the next candidate
 		candidate := candidates[len(candidates)-1]
 		candidates = candidates[:len(candidates)-1]
+		if t.debug {
+			log.Println("examining candidate", candidate.b.key, "at depth", candidate.b.depth)
+		}
 
 		// follow it as far as we can
 		results, matchedPieces := candidate.b.match(input[candidate.matchedPieces:])
@@ -85,12 +90,20 @@ func (t *trie) match(input []string, method string) *branch {
 		if matchedPieces+candidate.matchedPieces < len(input) {
 			for _, result := range results {
 				candidates = append(candidates, candidateBranch{b: result, matchedPieces: candidate.matchedPieces + matchedPieces})
+				if t.debug {
+					log.Println("found new candidate", result.key, "at depth", result.depth)
+				}
 			}
 			continue
 		}
 
 		// if we have no unmatched input, they're candidate leafs
 		candidateLeafs = append(candidateLeafs, results...)
+		if t.debug {
+			for _, result := range results {
+				log.Println("found new candidate leaf", result.key, "at depth", result.depth)
+			}
+		}
 	}
 
 	var match *branch

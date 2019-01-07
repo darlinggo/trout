@@ -57,6 +57,7 @@ type Router struct {
 	Handle404 http.Handler
 	Handle405 http.Handler
 	prefix    string
+	Debug     bool
 }
 
 func (router *Router) get404(r *http.Request) http.Handler {
@@ -145,6 +146,7 @@ func (router *Router) Endpoint(e string) *Endpoint {
 	pieces := strings.Split(e, "/")
 	if router.t == nil {
 		router.t = &trie{}
+		router.t.debug = router.Debug
 	}
 	router.t.Lock()
 	defer router.t.Unlock()
