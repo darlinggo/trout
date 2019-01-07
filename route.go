@@ -263,6 +263,11 @@ func findClosestLeaf(pieces []string, b *branch) *branch {
 // the Handlers associated with the Endpoint.
 type Endpoint branch
 
+func (e *Endpoint) Prefix() *Endpoint {
+	(*branch)(e).setPrefix(true)
+	return e
+}
+
 // Handler associates the passed http.Handler with the Endpoint. This http.Handler will be
 // used for all requests, regardless of the HTTP method they are using, unless overridden by
 // the Methods method. Endpoints without a http.Handler associated with them will not be

@@ -30,10 +30,14 @@ func TestRouting(t *testing.T) {
 		{"/hello/world", "DELETE", "catch-all"},
 		{"/ancestor/one", "GET", "ancestor-one"},
 		{"/ancestor/two", "GET", "ancestor-two"},
+		{"/prefix/foo/bar", "GET", "get-prefix"},
+		{"/prefix/foo", "GET", "get-prefix"},
+		{"/prefix", "GET", "get-dynamic"},
 	}
 	var router Router
 	router.Handle404 = testHandler("404")
 	router.Handle405 = testHandler("405")
+	router.Endpoint("/prefix/{id}").Prefix().Methods("GET").Handler(testHandler("get-prefix"))
 	router.Endpoint("/{id}").Methods("GET").Handler(testHandler("get-dynamic"))
 	router.Endpoint("/v1").Methods("GET").Handler(testHandler("get-static"))
 	router.Endpoint("/{id}").Methods("POST").Handler(testHandler("post-dynamic"))

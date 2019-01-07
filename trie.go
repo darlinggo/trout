@@ -26,6 +26,7 @@ type branch struct {
 	methods          map[string]http.Handler
 	depth            int
 	priority         float64
+	prefix           bool
 }
 
 type candidateBranch struct {
@@ -81,8 +82,11 @@ func (t *trie) match(input []string, method string) *branch {
 		// follow it as far as we can
 		results, matchedPieces := candidate.b.match(input[candidate.matchedPieces:])
 
-		// if there are no results, bail
+		// if there are no results and this isn't a prefix branch
 		if len(results) == 0 {
+			if candidate.b.prefix {
+				candidateLeafs = append(candidateLeafs, candidate.b)
+			}
 			continue
 		}
 
@@ -247,4 +251,8 @@ func (b *branch) setHandler(method string, handler http.Handler) {
 		b.methods = map[string]http.Handler{}
 	}
 	b.methods[method] = handler
+}
+
+func (b *branch) setPrefix(prefix bool) {
+	b.prefix = prefix
 }
