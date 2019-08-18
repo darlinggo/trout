@@ -1,258 +1,243 @@
 package trout
 
 import (
-	"fmt"
-	"log"
 	"net/http"
-	"strconv"
-	"strings"
 	"sync"
 )
 
-const catchAllMethod = "*"
-
-type trie struct {
-	debug  bool
-	branch *branch
-	sync.RWMutex
+// key represents the text inside a node, the piece of the URL that the node is
+// representing.
+type key struct {
+	// value is the text itself
+	value string
+	// dynamic signifies whether the text is a placeholder for another
+	// value or is what we're trying to match against
+	dynamic bool
+	// prefix signifies whether a key should be considered a prefix
+	// matcher, matching all subsequent keys
+	prefix bool
+	// nul signifies whether a key should be considered a null key, used to
+	// terminate an endpoint, or whether other keys follow it
+	nul bool
 }
 
-type branch struct {
-	parent           *branch
-	staticChildren   map[string]*branch
-	wildcardChildren []*branch
-	key              string
-	isParam          bool
-	methods          map[string]http.Handler
-	depth            int
-	priority         float64
-	prefix           bool
-}
-
-type candidateBranch struct {
-	b             *branch
-	matchedPieces int
-}
-
-func (t trie) debugWalk(input []string, indentLevel string, root *branch) []string {
-	key := root.key
-	if root.isParam {
-		key = "{" + key + "}"
-	}
-	input = append(input, indentLevel+"/"+key+"\t["+strconv.FormatFloat(root.priority, 'f', 4, 64)+"]")
-	for method, h := range root.methods {
-		input = append(input, fmt.Sprintf("%s\t- %s: %s", indentLevel, method, h))
-	}
-	for _, child := range root.staticChildren {
-		input = t.debugWalk(input, indentLevel+"\t", child)
-	}
-	for _, child := range root.wildcardChildren {
-		input = t.debugWalk(input, indentLevel+"\t", child)
-	}
-	return input
-}
-
-func (t trie) debugStr() string {
-	return strings.Join(t.debugWalk([]string{}, "", t.branch), "\n")
-}
-
-// match takes input as a slice of string keys, and attempts
-// to find a path through the trie that satisfies those keys.
-// If successful, the path will be returned as keys for
-// the children used, starting at the root branch of the trie.
-//
-// if a suitable path is found, the boolean returned will be
-// true. Otherwise, it will be false.
-func (t *trie) match(input []string, method string) *branch {
-	if t.branch == nil {
-		t.branch = &branch{}
-	}
-	// candidates tracks the paths that we think could be viable
-	candidates := []candidateBranch{{b: t.branch}}
-	// candidateLeafs tracks the paths that turned out to be viable
-	var candidateLeafs []*branch
-	for len(candidates) > 0 {
-		// pop off the next candidate
-		candidate := candidates[len(candidates)-1]
-		candidates = candidates[:len(candidates)-1]
-		if t.debug {
-			log.Println("examining candidate", candidate.b.key, "at depth", candidate.b.depth)
-		}
-
-		// follow it as far as we can
-		results, matchedPieces := candidate.b.match(input[candidate.matchedPieces:])
-
-		// if there are no results and this isn't a prefix branch
-		if len(results) == 0 {
-			if candidate.b.prefix {
-				candidateLeafs = append(candidateLeafs, candidate.b)
-			}
-			continue
-		}
-
-		// if we have unmatched input, add the results to the candidates and carry on
-		if matchedPieces+candidate.matchedPieces < len(input) {
-			for _, result := range results {
-				candidates = append(candidates, candidateBranch{b: result, matchedPieces: candidate.matchedPieces + matchedPieces})
-				if t.debug {
-					log.Println("found new candidate", result.key, "at depth", result.depth)
-				}
-			}
-			continue
-		}
-
-		// if we have no unmatched input, they're candidate leafs
-		candidateLeafs = append(candidateLeafs, results...)
-		if t.debug {
-			for _, result := range results {
-				log.Println("found new candidate leaf", result.key, "at depth", result.depth)
-			}
-		}
-	}
-
-	var match *branch
-	var matchedLeafs []*branch
-	for _, candidate := range candidateLeafs {
-		// prematurely set a result so if we don't get a method
-		// match, we can return a 405
-		match = candidate
-
-		// check if the candidates can handle the method we're looking for
-		if _, ok := candidate.methods[method]; ok {
-			matchedLeafs = append(matchedLeafs, candidate)
-			continue
-		}
-		if _, ok := candidate.methods[catchAllMethod]; ok {
-			matchedLeafs = append(matchedLeafs, candidate)
-			continue
-		}
-	}
-
-	var highScore float64
-	for _, result := range matchedLeafs {
-		if result.priority > highScore {
-			highScore = result.priority
-			match = result
-		}
-	}
-
-	return match
-}
-
-func (b *branch) match(input []string) ([]*branch, int) {
-	var matches []*branch
-	if len(input) < 1 {
-		return matches, 0
-	}
-	// do we have a precise match for this portion of the route?
-	child, ok := b.staticChildren[input[0]]
-	if ok {
-		matches = append(matches, child)
-	}
-
-	// do we have a wildcard match for this portion of the route?
-	for _, candidate := range b.wildcardChildren {
-		if candidate.check(input[0], len(input) == 1) {
-			matches = append(matches, candidate)
-		}
-	}
-	var inputMatched int
-	if len(matches) > 0 {
-		inputMatched = 1
-	}
-	return matches, inputMatched
-}
-
-// insert a new branch as a child of the branch this is called on. Key
-// will be used to match the branch, and if param is true, any input
-// will be considered to match the branch. For params, key is used as
-// the variable name for the value.
-func (b *branch) addChild(key string, param bool) *branch {
-	child := &branch{key: key, parent: b, isParam: param, depth: b.depth + 1}
-	child.priority = child.score()
-	if param {
-		b.wildcardChildren = append(b.wildcardChildren, child)
-		return child
-	}
-	if b.staticChildren == nil {
-		b.staticChildren = map[string]*branch{key: child}
-		return child
-	}
-	b.staticChildren[key] = child
-	return child
-}
-
-// return true if the input should be considered a match for the branch
-// isLast is true if this is the last piece of input
-func (b *branch) check(input string, isLast bool) bool {
-	// if it's the last piece of input and we don't have any handlers
-	// this isn't a match
-	if isLast && len(b.methods) == 0 {
+// equals returns whether `k` should be considered equivalent to `other` or
+// not.
+func (k key) equals(other key) bool {
+	if k.value != other.value {
 		return false
 	}
-	// params match everything!
-	if b.isParam && b.key != "" {
-		return true
+	if k.dynamic != other.dynamic {
+		return false
 	}
-	// last resort -- is it an exact match?
-	if b.key == input {
-		return true
+	if k.prefix != other.prefix {
+		return false
 	}
-	return false
+	if k.nul != other.nul {
+		return false
+	}
+	return true
 }
 
-func (b *branch) vars(input []string) map[string][]string {
-	bvars := map[string][]string{}
-	if b.parent != nil {
-		parentVars := b.parent.vars(input[:len(input)-1])
-		for k, v := range parentVars {
-			bvars[k] = append(bvars[k], v...)
-		}
+// String fulfills the Stringer interface, returning a representation of `k`
+// that can be used as a string. nul keys will be represented by "{::NULL:}",
+// while dynamic keys will be surrounded by "{" and "}" and prefix keys will
+// end in "::prefix"}. Static keys will be displayed as normal.
+func (k key) String() string {
+	if k.nul {
+		return "{::NULL::}"
 	}
-	if b.isParam {
-		bvars[b.key] = append(bvars[b.key], input[len(input)-1])
-	}
-	return bvars
-}
-
-func (b *branch) score() float64 {
-	score := 2.0
-	if b.isParam {
-		score = 1.0
-	}
-	score = score / float64(b.depth+1)
-	if b.parent != nil {
-		score += b.parent.score()
-	}
-	return score
-}
-
-func (b *branch) pathString() string {
-	var res string
-	if b.parent != nil {
-		res = b.parent.pathString()
-	}
-	if len(res) < 1 || res[len(res)-1] != '/' {
-		res += "/"
-	}
-	if b.isParam {
+	res := ""
+	if k.dynamic {
 		res += "{"
 	}
-	res += b.key
-	if b.isParam {
+	res += k.value
+	if k.prefix {
+		res += "::prefix"
+	}
+	if k.dynamic {
 		res += "}"
 	}
 	return res
 }
 
-// set the http.Handler for a given method on the current branch
-func (b *branch) setHandler(method string, handler http.Handler) {
-	if b.methods == nil {
-		b.methods = map[string]http.Handler{}
-	}
-	b.methods[method] = handler
+// node represents a single part of an endpoint or URL within our router. If a
+// URL is split by /, each piece is a node, and each piece is the child of the
+// node that came before it. This allows us to build a trie of these pieces
+// that can efficiently match URLs even when a large number of patterns exists.
+type node struct {
+	value        key
+	term         bool
+	depth        int
+	parent       *node
+	terminator   *node
+	children     map[string]*node
+	wildChildren []*node
+	methods      map[string]http.Handler
 }
 
-func (b *branch) setPrefix(prefix bool) {
-	b.prefix = prefix
+// newChild inserts a new child node under `n` and
+// returns the child.
+func (n *node) newChild(value key, term bool) *node {
+	newNode := &node{
+		value:    value,
+		term:     term,
+		depth:    n.depth + 1,
+		children: map[string]*node{},
+		methods:  map[string]http.Handler{},
+		parent:   n,
+	}
+	if value.dynamic {
+		n.wildChildren = append(n.wildChildren, newNode)
+	} else if term {
+		n.terminator = newNode
+	} else {
+		n.children[value.value] = newNode
+	}
+	return newNode
+}
+
+// trie is the data structure holding all our nodes. It will be used as the
+// main data structure of our router.
+type trie struct {
+	root *node
+	sync.RWMutex
+}
+
+// add inserts the nodes necessary to construct the supplied path.
+func (t *trie) add(path []key, methods map[string]http.Handler) *node {
+	n := t.root
+
+	t.Lock()
+	defer t.Unlock()
+
+	for _, piece := range path {
+		var match bool
+		if !piece.dynamic {
+			if static, ok := n.children[piece.value]; ok {
+				n = static
+				match = true
+			}
+		} else {
+			for _, wild := range n.wildChildren {
+				if wild.value.equals(piece) {
+					n = wild
+					match = true
+					break
+				}
+			}
+		}
+		if !match {
+			n = n.newChild(piece, false)
+		}
+	}
+	if n.terminator != nil {
+		return n.terminator
+	}
+	n = n.newChild(key{nul: true}, true)
+	return n
+}
+
+// findNodes runs the findNodes function on the root node of `t`
+// with concurrency safety.
+func (t *trie) findNodes(path []string) []*node {
+	t.RLock()
+	defer t.RUnlock()
+	return findNodes(t.root, path)
+}
+
+// findNodes returns all terminating nodes that could match the
+// supplied input. Because of wildcards and prefixes, there may
+// be multiple results, and it's up to the caller to determine
+// which is best.
+func findNodes(n *node, path []string) []*node {
+	if n == nil {
+		return nil
+	}
+	var results []*node
+	if n.value.prefix {
+		return []*node{n}
+	}
+	var nextPath []string
+	if len(path) > 1 {
+		nextPath = path[1:]
+	}
+	static, ok := n.children[path[0]]
+	if ok {
+		if len(nextPath) < 1 {
+			if static.terminator != nil {
+				results = append(results, static)
+			}
+		} else {
+			staticResults := findNodes(static, nextPath)
+			if staticResults != nil {
+				results = append(results, staticResults...)
+			}
+		}
+	}
+	for _, wild := range n.wildChildren {
+		if len(nextPath) < 1 {
+			if wild.terminator != nil {
+				results = append(results, wild)
+			}
+			continue
+		}
+		wildResults := findNodes(wild, nextPath)
+		if wildResults != nil {
+			results = append(results, wildResults...)
+		}
+	}
+	return results
+}
+
+// vars runs the vars function with concurrency safety as long
+// as `n` is a descendent of the root node of `t`.
+func (t *trie) vars(n *node, input []string) map[string][]string {
+	t.RLock()
+	defer t.RUnlock()
+	return vars(n, input)
+}
+
+// vars returns a mapping of dynamic path key names to
+// the values assigned to them. Values assigned to them
+// should be in the order they appear in the input when
+// key names are reused within a single path.
+func vars(n *node, input []string) map[string][]string {
+	if len(input) < 1 {
+		return map[string][]string{}
+	}
+	if n == nil {
+		return map[string][]string{}
+	}
+	if n.value.nul {
+		n = n.parent
+	}
+	if n == nil {
+		return map[string][]string{}
+	}
+	params := vars(n.parent, input[:len(input)-1])
+	if n.value.dynamic {
+		params[n.value.value] = append(params[n.value.value], input[len(input)-1])
+	}
+	return params
+}
+
+// pathString runs the pathString function with concurrency
+// safety as long as `n` is a descendent of the root node of
+// `t`.
+func (t *trie) pathString(n *node) string {
+	t.RLock()
+	defer t.RUnlock()
+	return pathString(n)
+}
+
+// pathString returns a representation of the path to
+// the passed node.
+func pathString(n *node) string {
+	if n == nil || n.value.nul {
+		return ""
+	}
+	res := pathString(n.parent)
+	res += "/" + n.value.String()
+	return res
 }

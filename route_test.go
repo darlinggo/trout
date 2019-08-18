@@ -32,12 +32,15 @@ func TestRouting(t *testing.T) {
 		{"/ancestor/two", "GET", "ancestor-two"},
 		{"/prefix/foo/bar", "GET", "get-prefix"},
 		{"/prefix/foo", "GET", "get-prefix"},
+		{"/prefix/static", "GET", "static-prefix"},
+		{"/prefix/static/bar/baz", "GET", "static-prefix"},
 		{"/prefix", "GET", "get-dynamic"},
 	}
 	var router Router
 	router.Handle404 = testHandler("404")
 	router.Handle405 = testHandler("405")
-	router.Endpoint("/prefix/{id}").Prefix().Methods("GET").Handler(testHandler("get-prefix"))
+	router.Prefix("/prefix/static").Methods("GET").Handler(testHandler("static-prefix"))
+	router.Prefix("/prefix/{id}").Methods("GET").Handler(testHandler("get-prefix"))
 	router.Endpoint("/{id}").Methods("GET").Handler(testHandler("get-dynamic"))
 	router.Endpoint("/v1").Methods("GET").Handler(testHandler("get-static"))
 	router.Endpoint("/{id}").Methods("POST").Handler(testHandler("post-dynamic"))
@@ -56,6 +59,41 @@ func TestRouting(t *testing.T) {
 			t.Errorf("Expected to route \"%s %s\" to %s, routed to %s", c.method, c.url, c.handler, res)
 		}
 
+	}
+}
+
+func TestKeysFromString(t *testing.T) {
+	cases := map[string][]key{
+		"/{id}/": []key{
+			{value: "id", dynamic: true},
+		},
+		"/v1": []key{
+			{value: "v1"},
+		},
+		"/": []key{
+			{value: ""},
+		},
+		"/ancestor/one": []key{
+			{value: "ancestor"},
+			{value: "one"},
+		},
+		"/ancestor/two": []key{
+			{value: "ancestor"},
+			{value: "two"},
+		},
+	}
+	for in, expect := range cases {
+		t.Logf("Testing case %s", in)
+		result := keysFromString(in)
+		if len(result) != len(expect) {
+			t.Errorf("Expected %d results, got %d: %+v", len(expect), len(result), result)
+			continue
+		}
+		for pos, res := range result {
+			if !res.equals(expect[pos]) {
+				t.Errorf("Expected result %d to be %+v, was %+v", pos, expect[pos], res)
+			}
+		}
 	}
 }
 
