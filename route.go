@@ -73,7 +73,7 @@ type Router struct {
 }
 
 // get404 returns the http.Handler `router` should use when serving a 404 page
-func (router *Router) get404() http.Handler {
+func (router Router) get404() http.Handler {
 	h := default404Handler
 	if router.Handle404 != nil {
 		h = router.Handle404
@@ -82,7 +82,7 @@ func (router *Router) get404() http.Handler {
 }
 
 // get405 returns the http.Handler `router` should use when serving a 405 page
-func (router *Router) get405() http.Handler {
+func (router Router) get405() http.Handler {
 	h := default405Handler
 	if router.Handle405 != nil {
 		h = router.Handle405
@@ -114,7 +114,7 @@ type route struct {
 // the algorithm. routes that can support the supplied method are always chosen
 // over routes that cannot; if a route that cannot support the supplied method
 // is returned, it is safe to assume no route can.
-func (router *Router) route(pieces []string, method string) *route {
+func (router Router) route(pieces []string, method string) *route {
 	result := &route{}
 	nodes := router.trie.findNodes(pieces)
 	if nodes == nil || len(nodes) < 1 {
@@ -198,7 +198,7 @@ func scoreNode(node *node, pieces []string, power int) float64 {
 	return score
 }
 
-func (router *Router) getHandler(r *http.Request) http.Handler {
+func (router Router) getHandler(r *http.Request) http.Handler {
 	// do our time tracking
 	start := time.Now()
 	defer func() {
@@ -247,7 +247,7 @@ func (router *Router) getHandler(r *http.Request) http.Handler {
 
 // ServeHTTP finds the best handler for the request, using the 404 or 405
 // handlers if necessary, and serves the request.
-func (router *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (router Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	router.getHandler(r).ServeHTTP(w, r)
 }
 
