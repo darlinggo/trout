@@ -19,7 +19,7 @@ are:
   them do their jobs.
 * Be intuitive. Value reasonable defaults and clear behaviours.
 
-Docs can be found on [GoDoc.org](https://godoc.org/darlinggo.co/trout/v2).
+Docs can be found on [GoDoc.org](https://godoc.org/darlinggo.co/trout/).
 
 # Using trout
 
