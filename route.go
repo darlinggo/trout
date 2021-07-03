@@ -15,14 +15,12 @@ const (
 var (
 	default404Handler = http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte("404 Page Not Found"))
-		return
+		w.Write([]byte("404 Page Not Found")) //nolint:errcheck
 	}))
 	default405Handler = http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", strings.Join(r.Header[http.CanonicalHeaderKey("Trout-Methods")], ", "))
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte("405 Method Not Allowed"))
-		return
+		w.Write([]byte("405 Method Not Allowed")) //nolint:errcheck
 	}))
 )
 
@@ -202,7 +200,7 @@ func (router Router) getHandler(r *http.Request) http.Handler {
 	// do our time tracking
 	start := time.Now()
 	defer func() {
-		r.Header.Set("Trout-Timer", strconv.FormatInt(time.Now().Sub(start).Nanoseconds(), 10))
+		r.Header.Set("Trout-Timer", strconv.FormatInt(time.Since(start).Nanoseconds(), 10))
 	}()
 
 	// if our router is nil, everything's a 404
@@ -212,7 +210,7 @@ func (router Router) getHandler(r *http.Request) http.Handler {
 
 	// break the request URL down into pieces
 	u := strings.TrimPrefix(r.URL.Path, router.prefix)
-	pieces := strings.Split(strings.ToLower(strings.Trim(u, "/")), "/")
+	pieces := strings.Split(strings.Trim(u, "/"), "/")
 
 	// find the best match for our pieces and request method
 	route := router.route(pieces, r.Method)
@@ -297,7 +295,6 @@ func (router *Router) Endpoint(e string) *Endpoint {
 // keysFromString parses `in` and returns the keys that represent it.
 func keysFromString(in string) []key {
 	in = strings.Trim(in, "/")
-	in = strings.ToLower(in)
 	pieces := strings.Split(in, "/")
 	keys := make([]key, 0, len(pieces))
 	for _, piece := range pieces {

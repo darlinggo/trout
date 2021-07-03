@@ -15,7 +15,12 @@ func (e exampleResponseWriter) Header() http.Header {
 }
 
 func (e exampleResponseWriter) Write(in []byte) (int, error) {
-	return os.Stdout.Write(append(in, '\n'))
+	n, err := os.Stdout.Write(in)
+	if err != nil {
+		return n, err
+	}
+	n2, err := os.Stdout.Write([]byte{'\n'})
+	return n + n2, err
 }
 
 func (e exampleResponseWriter) WriteHeader(statusCode int) {
@@ -26,7 +31,10 @@ func ExampleEndpoint_Handler() {
 	// here we're defining a dummy for demo purposes
 	postsHandler := http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("matched"))
+			_, err := w.Write([]byte("matched"))
+			if err != nil {
+				panic(err)
+			}
 		})
 
 	var router trout.Router
@@ -71,7 +79,10 @@ func ExamplePrefix_Handler() {
 	// here we're defining a dummy for demo purposes
 	postsHandler := http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("matched"))
+			_, err := w.Write([]byte("matched"))
+			if err != nil {
+				panic(err)
+			}
 		})
 
 	var router trout.Router
@@ -102,7 +113,10 @@ func ExampleMethods_Handler() {
 	// here we're defining a dummy for demo purposes
 	postsHandler := http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("matched"))
+			_, err := w.Write([]byte("matched"))
+			if err != nil {
+				panic(err)
+			}
 		})
 
 	var router trout.Router
@@ -148,8 +162,11 @@ func ExampleRequestVars() {
 			allIDs := vars[http.CanonicalHeaderKey("id")]
 			secondID := allIDs[1]
 
-			w.Write([]byte(fmt.Sprintf("%s\n%v\n%s",
+			_, err := w.Write([]byte(fmt.Sprintf("%s\n%v\n%s",
 				firstID, allIDs, secondID)))
+			if err != nil {
+				panic(err)
+			}
 		})
 
 	var router trout.Router

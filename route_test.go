@@ -12,7 +12,10 @@ import (
 type testHandler string
 
 func (t testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte(t))
+	_, err := w.Write([]byte(t))
+	if err != nil {
+		panic(err)
+	}
 }
 
 func TestRouting(t *testing.T) {
