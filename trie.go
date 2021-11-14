@@ -234,10 +234,13 @@ func (t *trie) pathString(n *node) string {
 // pathString returns a representation of the path to
 // the passed node.
 func pathString(n *node) string {
-	if n == nil || n.value.nul {
+	if n == nil {
 		return ""
 	}
 	res := pathString(n.parent)
+	if n.value.nul || n.value.String() == "" {
+		return res
+	}
 	res += "/" + n.value.String()
 	return res
 }
