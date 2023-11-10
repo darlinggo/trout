@@ -20,24 +20,24 @@ func (t testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func TestRouting(t *testing.T) {
 	type testCase struct {
-		url, method, handler string
+		url, method, handler, pattern string
 	}
 	cases := []testCase{
-		{"/v1", "GET", "get-static"},
-		{"/v1/", "GET", "get-static"},
-		{"/hello", "GET", "get-dynamic"},
-		{"/hello/", "GET", "get-dynamic"},
-		{"/v1", "POST", "post-dynamic"},
-		{"/v1/", "POST", "post-dynamic"},
-		{"/", "GET", "get-root"},
-		{"/hello/world", "DELETE", "catch-all"},
-		{"/ancestor/one", "GET", "ancestor-one"},
-		{"/ancestor/two", "GET", "ancestor-two"},
-		{"/prefix/foo/bar", "GET", "get-prefix"},
-		{"/prefix/foo", "GET", "get-prefix"},
-		{"/prefix/static", "GET", "static-prefix"},
-		{"/prefix/static/bar/baz", "GET", "static-prefix"},
-		{"/prefix", "GET", "get-dynamic"},
+		{"/v1", "GET", "get-static", "/v1"},
+		{"/v1/", "GET", "get-static", "/v1"},
+		{"/hello", "GET", "get-dynamic", "/{id}"},
+		{"/hello/", "GET", "get-dynamic", "/{id}"},
+		{"/v1", "POST", "post-dynamic", "/{id}"},
+		{"/v1/", "POST", "post-dynamic", "/{id}"},
+		{"/", "GET", "get-root", ""},
+		{"/hello/world", "DELETE", "catch-all", "/hello/world"},
+		{"/ancestor/one", "GET", "ancestor-one", "/ancestor/one"},
+		{"/ancestor/two", "GET", "ancestor-two", "/ancestor/two"},
+		{"/prefix/foo/bar", "GET", "get-prefix", "/prefix/{id::prefix}"},
+		{"/prefix/foo", "GET", "get-prefix", "/prefix/{id::prefix}"},
+		{"/prefix/static", "GET", "static-prefix", "/prefix/static::prefix"},
+		{"/prefix/static/bar/baz", "GET", "static-prefix", "/prefix/static::prefix"},
+		{"/prefix", "GET", "get-dynamic", "/{id}"},
 	}
 	var router Router
 	router.Handle404 = testHandler("404")
@@ -61,7 +61,9 @@ func TestRouting(t *testing.T) {
 		if res != c.handler {
 			t.Errorf("Expected to route \"%s %s\" to %s, routed to %s", c.method, c.url, c.handler, res)
 		}
-
+		if r.Header.Get("Trout-Pattern") != c.pattern {
+			t.Errorf("Expected \"%s %s\" to have a pattern of %q, got %q", c.method, c.url, c.pattern, r.Header.Get("Trout-Pattern"))
+		}
 	}
 }
 
