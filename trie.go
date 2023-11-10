@@ -74,18 +74,20 @@ type node struct {
 	children     map[string]*node
 	wildChildren []*node
 	methods      map[string]http.Handler
+	middleware   map[string][]func(http.Handler) http.Handler
 }
 
 // newChild inserts a new child node under `n` and
 // returns the child.
 func (n *node) newChild(value key, term bool) *node {
 	newNode := &node{
-		value:    value,
-		term:     term,
-		depth:    n.depth + 1,
-		children: map[string]*node{},
-		methods:  map[string]http.Handler{},
-		parent:   n,
+		value:      value,
+		term:       term,
+		depth:      n.depth + 1,
+		children:   map[string]*node{},
+		methods:    map[string]http.Handler{},
+		middleware: map[string][]func(http.Handler) http.Handler{},
+		parent:     n,
 	}
 	if value.dynamic {
 		n.wildChildren = append(n.wildChildren, newNode)
