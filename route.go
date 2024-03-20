@@ -132,8 +132,10 @@ func (router Router) route(pieces []string, method string) *route {
 	}
 	var ok bool
 	result.handler, ok = node.methods[method]
+	result.middleware = node.middleware[method]
 	if !ok {
 		result.handler = node.methods[catchAllMethod]
+		result.middleware = node.middleware[catchAllMethod]
 	}
 	return result
 }
