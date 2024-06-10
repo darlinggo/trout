@@ -232,6 +232,9 @@ func (router Router) getHandler(r *http.Request) http.Handler {
 	r.Header.Set("Trout-Pattern", route.pattern)
 	for key, vals := range route.params {
 		r.Header[http.CanonicalHeaderKey("Trout-Param-"+key)] = vals
+		for _, val := range vals {
+			setBuiltinRequestPathVar(r, key, val)
+		}
 	}
 
 	// if no handler is set, it could be because there's no handler for
